@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="id">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Pembaca Data Wisudawan</title>
+    <link rel="stylesheet" href="/styles.css" />
+  </head>
+  <body>
+    <main class="app-shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Google Sheets</p>
+          <h1>Data Wisudawan</h1>
+        </div>
+        <div class="actions">
+          <label class="search-box">
+            <span>Cari</span>
+            <input id="searchInput" type="search" placeholder="Nama, NPM, prodi..." />
+          </label>
+          <button id="refreshButton" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <section class="status-bar" id="statusBar">Memuat data spreadsheet...</section>
+
+      <section class="workspace">
+        <div class="sheet-panel">
+          <div class="sheet-scroll">
+            <table class="sheet-table" id="sheetTable">
+              <thead id="tableHead"></thead>
+              <tbody id="tableBody"></tbody>
+            </table>
+          </div>
+        </div>
+
+        <aside class="detail-panel" aria-live="polite">
+          <div class="detail-head">
+            <p class="eyebrow">Detail Row</p>
+            <h2 id="detailTitle">Pilih salah satu row</h2>
+          </div>
+          <div class="detail-content" id="detailContent">
+            <p class="empty-state">Klik baris pada tabel untuk melihat seluruh data mahasiswa.</p>
+          </div>
+        </aside>
+      </section>
+    </main>
+
+    <script src="/app.js" type="module"></script>
+  </body>
+</html>
