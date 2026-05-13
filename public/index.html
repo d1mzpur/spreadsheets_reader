@@ -14,17 +14,23 @@
           <h1>Data Wisudawan</h1>
         </div>
         <div class="actions">
+          <form class="sheet-form" id="sheetForm">
+            <label class="url-box">
+              <span>URL Sheet</span>
+              <input id="sheetUrlInput" type="url" placeholder="https://docs.google.com/spreadsheets/d/..." />
+            </label>
+            <button id="refreshButton" type="submit">Muat</button>
+          </form>
           <label class="search-box">
             <span>Cari</span>
             <input id="searchInput" type="search" placeholder="Nama, NPM, prodi..." />
           </label>
-          <button id="refreshButton" type="button">Refresh</button>
         </div>
       </header>
 
       <section class="status-bar" id="statusBar">Memuat data spreadsheet...</section>
 
-      <section class="workspace">
+      <section class="workspace" id="workspace">
         <div class="sheet-panel">
           <div class="sheet-scroll">
             <table class="sheet-table" id="sheetTable">
@@ -42,6 +48,17 @@
           <div class="detail-content" id="detailContent">
             <p class="empty-state">Klik baris pada tabel untuk melihat seluruh data mahasiswa.</p>
           </div>
+        </aside>
+
+        <aside class="preview-panel" id="linkPreviewPanel" hidden>
+          <div class="preview-head">
+            <div>
+              <p class="eyebrow">Preview</p>
+              <h2 id="linkPreviewTitle">Pilih link</h2>
+            </div>
+            <button id="closePreviewButton" type="button">Tutup</button>
+          </div>
+          <iframe class="preview-frame" id="linkPreviewFrame" title="Preview link"></iframe>
         </aside>
       </section>
     </main>

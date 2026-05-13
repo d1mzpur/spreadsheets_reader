@@ -225,12 +225,13 @@
 import http from "node:http";
 import { readFile } from "node:fs/promises";
 import { extname, join, normalize } from "node:path";
+import { Readable } from "node:stream";
 import { fileURLToPath } from "node:url";
 
 const __dirname = fileURLToPath(new URL(".", import.meta.url));
 const publicDir = join(__dirname, "public");
 
-const PORT = 3003;
+const PORT = Number(process.env.PORT || 3003);
 
 const mimeTypes = {
   ".html": "text/html; charset=utf-8",
@@ -250,6 +251,96 @@ function sendJson(res, statusCode, payload) {
   });
 
   res.end(JSON.stringify(payload));
+}
+
+function sanitizeFilename(value) {
+  return String(value || "file")
+    .replace(/[\\/:*?"<>|]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 120) || "file";
+}
+
+function toDownloadUrl(fileUrl) {
+  try {
+    const parsed = new URL(fileUrl);
+
+    if (parsed.hostname.includes("drive.google.com")) {
+      const fileId =
+        parsed.pathname.match(/\/file\/d\/([^/]+)/)?.[1] ||
+        parsed.searchParams.get("id");
+
+      if (fileId) {
+        return `https://drive.google.com/uc?export=download&id=${fileId}`;
+      }
+    }
+  } catch {
+    return fileUrl;
+  }
+
+  return fileUrl;
+}
+
+function extensionFromContentType(contentType) {
+  const cleanType = contentType.split(";")[0].trim().toLowerCase();
+  const extensions = {
+    "application/pdf": ".pdf",
+    "image/jpeg": ".jpg",
+    "image/png": ".png",
+    "image/webp": ".webp",
+    "application/zip": ".zip",
+    "text/plain": ".txt"
+  };
+
+  return extensions[cleanType] || "";
+}
+
+function hasFileExtension(filename) {
+  return /\.[a-z0-9]{2,5}$/i.test(filename);
+}
+
+async function proxyDownload(reqUrl, res) {
+  const fileUrl = reqUrl.searchParams.get("url");
+  const requestedFilename = sanitizeFilename(
+    reqUrl.searchParams.get("filename")
+  );
+
+  if (!fileUrl) {
+    sendJson(res, 400, {
+      error: "URL file wajib diisi"
+    });
+    return;
+  }
+
+  const parsed = new URL(fileUrl);
+
+  if (!["http:", "https:"].includes(parsed.protocol)) {
+    sendJson(res, 400, {
+      error: "URL file tidak valid"
+    });
+    return;
+  }
+
+  const response = await fetch(toDownloadUrl(fileUrl));
+
+  if (!response.ok || !response.body) {
+    throw new Error(`File mengembalikan status ${response.status}`);
+  }
+
+  const contentType =
+    response.headers.get("content-type") || "application/octet-stream";
+  const extension =
+    hasFileExtension(requestedFilename) ? "" : extensionFromContentType(contentType);
+  const filename = `${requestedFilename}${extension}`;
+  const encodedFilename = encodeURIComponent(filename);
+
+  res.writeHead(200, {
+    "Content-Type": contentType,
+    "Content-Disposition": `attachment; filename="download${extension}"; filename*=UTF-8''${encodedFilename}`,
+    "Cache-Control": "no-store"
+  });
+
+  Readable.fromWeb(response.body).pipe(res);
 }
 
 function parseCsv(csv) {
@@ -447,6 +538,11 @@ const server = http.createServer(async (req, res) => {
       const data = await fetchSheetData(sheetUrl);
 
       sendJson(res, 200, data);
+      return;
+    }
+
+    if (url.pathname === "/api/download") {
+      await proxyDownload(url, res);
       return;
     }
 
