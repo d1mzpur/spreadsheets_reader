@@ -73,7 +73,8 @@ h2 {
 }
 
 .actions,
-.sheet-form {
+.sheet-form,
+.search-controls {
   display: flex;
   align-items: end;
   gap: 10px;
@@ -404,7 +405,8 @@ button:hover {
 
   .topbar,
   .actions,
-  .sheet-form {
+  .sheet-form,
+  .search-controls {
     align-items: stretch;
     flex-direction: column;
   }

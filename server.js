@@ -261,24 +261,91 @@ function sanitizeFilename(value) {
     .slice(0, 120) || "file";
 }
 
-function toDownloadUrl(fileUrl) {
+function getDriveFileId(fileUrl) {
   try {
     const parsed = new URL(fileUrl);
 
     if (parsed.hostname.includes("drive.google.com")) {
-      const fileId =
+      return (
         parsed.pathname.match(/\/file\/d\/([^/]+)/)?.[1] ||
-        parsed.searchParams.get("id");
-
-      if (fileId) {
-        return `https://drive.google.com/uc?export=download&id=${fileId}`;
-      }
+        parsed.searchParams.get("id")
+      );
     }
   } catch {
-    return fileUrl;
+    return null;
   }
 
-  return fileUrl;
+  return null;
+}
+
+function toDriveDownloadUrl(fileId, confirmToken = "") {
+  const url = new URL("https://drive.google.com/uc");
+
+  url.searchParams.set("export", "download");
+  url.searchParams.set("id", fileId);
+
+  if (confirmToken) {
+    url.searchParams.set("confirm", confirmToken);
+  }
+
+  return url.toString();
+}
+
+function getCookieHeader(response) {
+  const setCookie = response.headers.get("set-cookie");
+
+  if (!setCookie) return "";
+
+  return setCookie
+    .split(/,(?=[^;,]+=)/)
+    .map((cookie) => cookie.split(";")[0].trim())
+    .filter(Boolean)
+    .join("; ");
+}
+
+function getDriveConfirmToken(html) {
+  const directToken =
+    html.match(/[?&]confirm=([0-9A-Za-z_-]+)/)?.[1] ||
+    html.match(/confirm=([0-9A-Za-z_-]+)&amp;/)?.[1] ||
+    html.match(/name="confirm"\s+value="([^"]+)"/)?.[1];
+
+  if (directToken) return directToken;
+
+  return /download_warning|quota exceeded|virus scan warning/i.test(html)
+    ? "t"
+    : "";
+}
+
+async function fetchDriveFile(fileUrl) {
+  const fileId = getDriveFileId(fileUrl);
+
+  if (!fileId) return fetch(fileUrl);
+
+  const firstResponse = await fetch(toDriveDownloadUrl(fileId));
+  const contentType = firstResponse.headers.get("content-type") || "";
+  const contentDisposition = firstResponse.headers.get("content-disposition");
+
+  if (
+    contentDisposition ||
+    !contentType.toLowerCase().includes("text/html")
+  ) {
+    return firstResponse;
+  }
+
+  const html = await firstResponse.text();
+  const confirmToken = getDriveConfirmToken(html);
+
+  if (!confirmToken) {
+    throw new Error(
+      "Google Drive tidak mengirim file. Pastikan file bisa diakses publik atau dibagikan ke 'Anyone with the link'."
+    );
+  }
+
+  const cookie = getCookieHeader(firstResponse);
+
+  return fetch(toDriveDownloadUrl(fileId, confirmToken), {
+    headers: cookie ? { Cookie: cookie } : undefined
+  });
 }
 
 function extensionFromContentType(contentType) {
@@ -321,7 +388,7 @@ async function proxyDownload(reqUrl, res) {
     return;
   }
 
-  const response = await fetch(toDownloadUrl(fileUrl));
+  const response = await fetchDriveFile(fileUrl);
 
   if (!response.ok || !response.body) {
     throw new Error(`File mengembalikan status ${response.status}`);
@@ -329,6 +396,13 @@ async function proxyDownload(reqUrl, res) {
 
   const contentType =
     response.headers.get("content-type") || "application/octet-stream";
+
+  if (contentType.toLowerCase().includes("text/html")) {
+    throw new Error(
+      "Google Drive mengembalikan halaman web, bukan file. Cek permission file atau coba buka link Drive langsung."
+    );
+  }
+
   const extension =
     hasFileExtension(requestedFilename) ? "" : extensionFromContentType(contentType);
   const filename = `${requestedFilename}${extension}`;

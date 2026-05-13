@@ -5,6 +5,7 @@ const detailContent = document.getElementById("detailContent");
 const workspace = document.getElementById("workspace");
 const statusBar = document.getElementById("statusBar");
 const searchInput = document.getElementById("searchInput");
+const clearSearchButton = document.getElementById("clearSearchButton");
 const sheetUrlInput = document.getElementById("sheetUrlInput");
 const sheetForm = document.getElementById("sheetForm");
 const refreshButton = document.getElementById("refreshButton");
@@ -197,7 +198,12 @@ function renderImportantName(row) {
 }
 
 function normalizeSearchText(value) {
-  return String(value || "").toLowerCase().replace(/\s+/g, " ").trim();
+  return String(value || "")
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .toLowerCase()
+    .replace(/\s+/g, " ")
+    .trim();
 }
 
 function shouldShowDetailField(header) {
@@ -207,7 +213,23 @@ function shouldShowDetailField(header) {
 function rowMatches(row, query) {
   if (!query) return true;
 
-  return normalizeSearchText(Object.values(row.values).join(" ")).includes(query);
+  const searchableText = [
+    row.id,
+    ...Object.keys(row.values),
+    ...Object.values(row.values)
+  ].join(" ");
+
+  return normalizeSearchText(searchableText).includes(query);
+}
+
+function applySearch() {
+  renderTable();
+}
+
+function clearSearch() {
+  searchInput.value = "";
+  searchInput.focus();
+  applySearch();
 }
 
 function renderTable() {
@@ -386,7 +408,12 @@ tableBody.addEventListener("keydown", (event) => {
   selectRow(rowElement);
 });
 
-searchInput.addEventListener("input", renderTable);
+searchInput.addEventListener("input", applySearch);
+searchInput.addEventListener("search", applySearch);
+searchInput.addEventListener("keydown", (event) => {
+  if (event.key === "Enter") event.preventDefault();
+});
+clearSearchButton.addEventListener("click", clearSearch);
 sheetForm.addEventListener("submit", (event) => {
   event.preventDefault();
   loadSheet();
