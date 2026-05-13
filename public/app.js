@@ -6,6 +6,7 @@ const workspace = document.getElementById("workspace");
 const statusBar = document.getElementById("statusBar");
 const searchInput = document.getElementById("searchInput");
 const clearSearchButton = document.getElementById("clearSearchButton");
+const downloadSelectedButton = document.getElementById("downloadSelectedButton");
 const sheetUrlInput = document.getElementById("sheetUrlInput");
 const sheetForm = document.getElementById("sheetForm");
 const refreshButton = document.getElementById("refreshButton");
@@ -19,12 +20,30 @@ let sheetData = {
   rows: []
 };
 let selectedId = null;
+const checkedRowIds = new Set();
 const hiddenDetailHeaders = new Set([
   "scan ktp",
   "scan ijazah sma/sederajat",
   "pas foto",
   "lembar biodata wisudawan"
 ]);
+function getSelectedDownloadLabel(header) {
+  const normalizedHeader = normalizeSearchText(header);
+
+  if (normalizedHeader.includes("ktp")) return "KTP";
+  if (normalizedHeader.includes("pas foto") || normalizedHeader.includes("foto")) {
+    return "Pas Foto";
+  }
+  if (normalizedHeader.includes("lembar") && normalizedHeader.includes("biodata")) {
+    return "Lembar Biodata";
+  }
+  if (normalizedHeader.includes("lembar") && normalizedHeader.includes("ijazah")) {
+    return "Lembar Ijazah";
+  }
+  if (normalizedHeader.includes("ijazah")) return "Ijazah";
+
+  return "";
+}
 
 function escapeHtml(value) {
   return String(value)
@@ -89,6 +108,28 @@ function getRowLinks(row) {
   });
 
   return links;
+}
+
+function getSelectedDownloadFiles(row) {
+  const files = [];
+  const seen = new Set();
+
+  sheetData.headers.forEach((header) => {
+    const label = getSelectedDownloadLabel(header);
+    if (!label) return;
+
+    extractUrls(row.values[header]).forEach((url, index) => {
+      if (seen.has(url)) return;
+
+      seen.add(url);
+      files.push({
+        label: index === 0 ? label : `${label} ${index + 1}`,
+        url
+      });
+    });
+  });
+
+  return files;
 }
 
 function renderRowLinks(row) {
@@ -232,12 +273,28 @@ function clearSearch() {
   applySearch();
 }
 
+function updateDownloadSelectedButton() {
+  const count = checkedRowIds.size;
+
+  downloadSelectedButton.disabled = count === 0;
+  downloadSelectedButton.textContent =
+    count === 0 ? "Download Selected" : `Download Selected (${count})`;
+}
+
 function renderTable() {
   const query = normalizeSearchText(searchInput.value);
   const visibleRows = sheetData.rows.filter((row) => rowMatches(row, query));
 
   tableHead.innerHTML = `
     <tr>
+      <th class="select-cell">
+        <input
+          type="checkbox"
+          data-select-visible
+          aria-label="Pilih semua row yang tampil"
+          ${visibleRows.length > 0 && visibleRows.every((row) => checkedRowIds.has(row.id)) ? "checked" : ""}
+        />
+      </th>
       <th>No</th>
       ${sheetData.headers.map((header) => `<th>${escapeHtml(header)}</th>`).join("")}
     </tr>
@@ -254,6 +311,14 @@ function renderTable() {
 
       return `
         <tr data-row-id="${row.id}" class="${row.id === selectedId ? "active" : ""}" tabindex="0">
+          <td class="select-cell">
+            <input
+              type="checkbox"
+              data-row-check="${row.id}"
+              aria-label="Pilih row ${row.id}"
+              ${checkedRowIds.has(row.id) ? "checked" : ""}
+            />
+          </td>
           <td>${row.id}</td>
           ${cells}
         </tr>
@@ -264,13 +329,14 @@ function renderTable() {
   if (visibleRows.length === 0) {
     tableBody.innerHTML = `
       <tr>
-        <td colspan="${sheetData.headers.length + 1}">Data tidak ditemukan</td>
+        <td colspan="${sheetData.headers.length + 2}">Data tidak ditemukan</td>
       </tr>
     `;
   }
 
   statusBar.classList.remove("error");
   statusBar.textContent = `${visibleRows.length} dari ${sheetData.rows.length} row ditampilkan.`;
+  updateDownloadSelectedButton();
 }
 
 function renderDetail(row) {
@@ -338,6 +404,7 @@ async function loadSheet() {
 
     sheetData = data;
     searchInput.value = "";
+    checkedRowIds.clear();
     setSheetUrlParam(sheetUrl);
     resetDetail();
     renderTable();
@@ -346,6 +413,7 @@ async function loadSheet() {
       headers: [],
       rows: []
     };
+    checkedRowIds.clear();
     tableHead.innerHTML = "";
     tableBody.innerHTML = "";
     resetDetail();
@@ -376,10 +444,100 @@ function closePreview() {
   workspace.classList.remove("preview-open");
 }
 
+function downloadBlob(blob, filename) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+
+  link.href = url;
+  link.download = filename;
+  document.body.append(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+async function downloadSelectedRows() {
+  const rows = sheetData.rows
+    .filter((row) => checkedRowIds.has(row.id))
+    .map((row) => ({
+      id: row.id,
+      name: getPrimaryTitle(row),
+      files: getSelectedDownloadFiles(row)
+    }))
+    .filter((row) => row.files.length > 0);
+
+  if (rows.length === 0) {
+    statusBar.classList.add("error");
+    statusBar.textContent =
+      "Row yang dipilih tidak punya link KTP, ijazah, pas foto, atau lembar biodata.";
+    return;
+  }
+
+  statusBar.classList.remove("error");
+  statusBar.textContent = `Menyiapkan ZIP untuk ${rows.length} row...`;
+  downloadSelectedButton.disabled = true;
+
+  try {
+    const response = await fetch("/api/download-selected", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json"
+      },
+      body: JSON.stringify({ rows })
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      throw new Error(error.detail || error.error || "Gagal membuat ZIP");
+    }
+
+    const blob = await response.blob();
+    downloadBlob(blob, "dokumen-selected.zip");
+    statusBar.textContent = `ZIP ${rows.length} row berhasil dibuat.`;
+  } catch (error) {
+    statusBar.classList.add("error");
+    statusBar.textContent = error.message;
+  } finally {
+    updateDownloadSelectedButton();
+  }
+}
+
 tableBody.addEventListener("click", (event) => {
+  const checkbox = event.target.closest("[data-row-check]");
+  if (checkbox) {
+    const rowId = Number(checkbox.dataset.rowCheck);
+
+    if (checkbox.checked) {
+      checkedRowIds.add(rowId);
+    } else {
+      checkedRowIds.delete(rowId);
+    }
+
+    renderTable();
+    return;
+  }
+
   const rowElement = event.target.closest("tr[data-row-id]");
   if (!rowElement) return;
   selectRow(rowElement);
+});
+
+tableHead.addEventListener("change", (event) => {
+  const selectVisible = event.target.closest("[data-select-visible]");
+  if (!selectVisible) return;
+
+  const query = normalizeSearchText(searchInput.value);
+  const visibleRows = sheetData.rows.filter((row) => rowMatches(row, query));
+
+  visibleRows.forEach((row) => {
+    if (selectVisible.checked) {
+      checkedRowIds.add(row.id);
+    } else {
+      checkedRowIds.delete(row.id);
+    }
+  });
+
+  renderTable();
 });
 
 detailContent.addEventListener("click", (event) => {
@@ -414,6 +572,7 @@ searchInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") event.preventDefault();
 });
 clearSearchButton.addEventListener("click", clearSearch);
+downloadSelectedButton.addEventListener("click", downloadSelectedRows);
 sheetForm.addEventListener("submit", (event) => {
   event.preventDefault();
   loadSheet();

@@ -135,6 +135,11 @@ button:hover {
   background: var(--surface-strong);
 }
 
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+
 .status-bar {
   min-height: 34px;
   border: 1px solid var(--line);
@@ -200,16 +205,32 @@ button:hover {
 }
 
 .sheet-table th:first-child,
-.sheet-table td:first-child {
+.sheet-table td:first-child,
+.sheet-table th:nth-child(2),
+.sheet-table td:nth-child(2) {
   position: sticky;
-  left: 0;
   z-index: 2;
+  background: var(--surface-strong);
+}
+
+.sheet-table th:first-child,
+.sheet-table td:first-child {
+  left: 0;
   min-width: 54px;
   width: 54px;
   max-width: 54px;
   text-align: center;
   color: var(--muted);
-  background: var(--surface-strong);
+}
+
+.sheet-table th:nth-child(2),
+.sheet-table td:nth-child(2) {
+  left: 54px;
+  min-width: 54px;
+  width: 54px;
+  max-width: 54px;
+  text-align: center;
+  color: var(--muted);
 }
 
 .sheet-table thead th {
@@ -221,8 +242,17 @@ button:hover {
   font-weight: 750;
 }
 
-.sheet-table thead th:first-child {
+.sheet-table thead th:first-child,
+.sheet-table thead th:nth-child(2) {
   z-index: 4;
+}
+
+.select-cell input {
+  width: 16px;
+  height: 16px;
+  margin: 0;
+  accent-color: var(--accent);
+  cursor: pointer;
 }
 
 .sheet-table tbody tr {
