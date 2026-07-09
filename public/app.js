@@ -5,6 +5,8 @@ const detailContent = document.getElementById("detailContent");
 const workspace = document.getElementById("workspace");
 const statusBar = document.getElementById("statusBar");
 const searchInput = document.getElementById("searchInput");
+const startRowInput = document.getElementById("startRowInput");
+const endRowInput = document.getElementById("endRowInput");
 const clearSearchButton = document.getElementById("clearSearchButton");
 const downloadSelectedButton = document.getElementById("downloadSelectedButton");
 const sheetUrlInput = document.getElementById("sheetUrlInput");
@@ -31,16 +33,16 @@ function getSelectedDownloadLabel(header) {
   const normalizedHeader = normalizeSearchText(header);
 
   if (normalizedHeader.includes("ktp")) return "KTP";
+  if (normalizedHeader.includes("scan") && normalizedHeader.includes("ijazah")) {
+    return "SCAN IJAZAH";
+  }
   if (normalizedHeader.includes("pas foto") || normalizedHeader.includes("foto")) {
-    return "Pas Foto";
+    return "PAS FOTO";
   }
   if (normalizedHeader.includes("lembar") && normalizedHeader.includes("biodata")) {
-    return "Lembar Biodata";
+    return "LEMBAR BIODATA";
   }
-  if (normalizedHeader.includes("lembar") && normalizedHeader.includes("ijazah")) {
-    return "Lembar Ijazah";
-  }
-  if (normalizedHeader.includes("ijazah")) return "Ijazah";
+  if (normalizedHeader.includes("ijazah")) return "SCAN IJAZAH";
 
   return "";
 }
@@ -111,25 +113,26 @@ function getRowLinks(row) {
 }
 
 function getSelectedDownloadFiles(row) {
-  const files = [];
-  const seen = new Set();
+  const filesByLabel = new Map();
 
   sheetData.headers.forEach((header) => {
     const label = getSelectedDownloadLabel(header);
     if (!label) return;
 
-    extractUrls(row.values[header]).forEach((url, index) => {
-      if (seen.has(url)) return;
+    extractUrls(row.values[header]).forEach((url) => {
+      const currentFiles = filesByLabel.get(label) || [];
+      if (currentFiles.some((file) => file.url === url)) return;
 
-      seen.add(url);
-      files.push({
-        label: index === 0 ? label : `${label} ${index + 1}`,
+      currentFiles.push({
+        label,
+        order: currentFiles.length + 1,
         url
       });
+      filesByLabel.set(label, currentFiles);
     });
   });
 
-  return files;
+  return Array.from(filesByLabel.values()).flat();
 }
 
 function renderRowLinks(row) {
@@ -247,6 +250,24 @@ function normalizeSearchText(value) {
     .trim();
 }
 
+function getRangeBounds() {
+  const rawStart = Number(startRowInput.value);
+  const rawEnd = Number(endRowInput.value);
+  const start = Number.isFinite(rawStart) && rawStart > 0 ? Math.floor(rawStart) : 1;
+  const end =
+    Number.isFinite(rawEnd) && rawEnd > 0 ? Math.floor(rawEnd) : Number.POSITIVE_INFINITY;
+
+  return {
+    start: Math.min(start, end),
+    end: Math.max(start, end)
+  };
+}
+
+function rowMatchesRange(row) {
+  const { start, end } = getRangeBounds();
+  return row.id >= start && row.id <= end;
+}
+
 function shouldShowDetailField(header) {
   return !hiddenDetailHeaders.has(normalizeSearchText(header));
 }
@@ -269,21 +290,28 @@ function applySearch() {
 
 function clearSearch() {
   searchInput.value = "";
+  startRowInput.value = "";
+  endRowInput.value = "";
   searchInput.focus();
   applySearch();
 }
 
 function updateDownloadSelectedButton() {
-  const count = checkedRowIds.size;
+  const query = normalizeSearchText(searchInput.value);
+  const count = sheetData.rows.filter(
+    (row) => rowMatchesRange(row) && rowMatches(row, query) && getSelectedDownloadFiles(row).length > 0
+  ).length;
 
   downloadSelectedButton.disabled = count === 0;
   downloadSelectedButton.textContent =
-    count === 0 ? "Download Selected" : `Download Selected (${count})`;
+    count === 0 ? "Download Rentang" : `Download Rentang (${count})`;
 }
 
 function renderTable() {
   const query = normalizeSearchText(searchInput.value);
-  const visibleRows = sheetData.rows.filter((row) => rowMatches(row, query));
+  const visibleRows = sheetData.rows.filter(
+    (row) => rowMatchesRange(row) && rowMatches(row, query)
+  );
 
   tableHead.innerHTML = `
     <tr>
@@ -335,7 +363,8 @@ function renderTable() {
   }
 
   statusBar.classList.remove("error");
-  statusBar.textContent = `${visibleRows.length} dari ${sheetData.rows.length} row ditampilkan.`;
+  const { start, end } = getRangeBounds();
+  statusBar.textContent = `${visibleRows.length} dari ${sheetData.rows.length} row ditampilkan (No ${start}-${Number.isFinite(end) ? end : "selesai"}).`;
   updateDownloadSelectedButton();
 }
 
@@ -456,12 +485,33 @@ function downloadBlob(blob, filename) {
   URL.revokeObjectURL(url);
 }
 
+function getRowValue(row, possibleHeaders) {
+  for (const header of sheetData.headers) {
+    const normalizedHeader = normalizeSearchText(header);
+    if (!possibleHeaders.some((item) => normalizedHeader.includes(item))) continue;
+
+    const value = String(row.values[header] || "").trim();
+    if (value) return value;
+  }
+
+  return "";
+}
+
+function getZipFolderName(row) {
+  const npm = getRowValue(row, ["npm", "nim", "nomor pokok mahasiswa"]);
+  const name = getRowValue(row, ["nama"]) || getPrimaryTitle(row);
+  const parts = [npm, name].filter(Boolean);
+  return parts.join(" - ") || `Row ${row.id}`;
+}
+
 async function downloadSelectedRows() {
+  const query = normalizeSearchText(searchInput.value);
   const rows = sheetData.rows
-    .filter((row) => checkedRowIds.has(row.id))
+    .filter((row) => rowMatchesRange(row) && rowMatches(row, query))
     .map((row) => ({
       id: row.id,
       name: getPrimaryTitle(row),
+      baseName: getZipFolderName(row),
       files: getSelectedDownloadFiles(row)
     }))
     .filter((row) => row.files.length > 0);
@@ -469,7 +519,7 @@ async function downloadSelectedRows() {
   if (rows.length === 0) {
     statusBar.classList.add("error");
     statusBar.textContent =
-      "Row yang dipilih tidak punya link KTP, ijazah, pas foto, atau lembar biodata.";
+      "Pada rentang ini tidak ada link KTP, scan ijazah, pas foto, atau lembar biodata.";
     return;
   }
 
@@ -492,7 +542,8 @@ async function downloadSelectedRows() {
     }
 
     const blob = await response.blob();
-    downloadBlob(blob, "dokumen-selected.zip");
+    const { start, end } = getRangeBounds();
+    downloadBlob(blob, `dokumen-${start}-${Number.isFinite(end) ? end : "selesai"}.zip`);
     statusBar.textContent = `ZIP ${rows.length} row berhasil dibuat.`;
   } catch (error) {
     statusBar.classList.add("error");
@@ -527,7 +578,9 @@ tableHead.addEventListener("change", (event) => {
   if (!selectVisible) return;
 
   const query = normalizeSearchText(searchInput.value);
-  const visibleRows = sheetData.rows.filter((row) => rowMatches(row, query));
+  const visibleRows = sheetData.rows.filter(
+    (row) => rowMatchesRange(row) && rowMatches(row, query)
+  );
 
   visibleRows.forEach((row) => {
     if (selectVisible.checked) {
@@ -568,6 +621,8 @@ tableBody.addEventListener("keydown", (event) => {
 
 searchInput.addEventListener("input", applySearch);
 searchInput.addEventListener("search", applySearch);
+startRowInput.addEventListener("input", applySearch);
+endRowInput.addEventListener("input", applySearch);
 searchInput.addEventListener("keydown", (event) => {
   if (event.key === "Enter") event.preventDefault();
 });

@@ -528,7 +528,9 @@ async function proxySelectedDownload(req, res) {
   }
 
   for (const row of rows) {
-    const folderName = normalizeZipPathPart(row.name || `Row ${row.id}`);
+    const baseName = normalizeZipPathPart(
+      row.baseName || row.name || `Row ${row.id}`
+    );
     const files = Array.isArray(row.files) ? row.files : [];
 
     for (const file of files) {
@@ -544,12 +546,14 @@ async function proxySelectedDownload(req, res) {
         label: file.label || "File",
         url: file.url
       });
-      const fileName = normalizeZipPathPart(file.label || "File");
-      let path = `${folderName}/${fileName}${downloaded.extension}`;
+      const categoryName = normalizeZipPathPart(file.label || "File");
+      const suffix = file.order > 1 ? ` ${file.order}` : "";
+      const fileName = `${baseName}${suffix}`;
+      let path = `${categoryName}/${fileName}${downloaded.extension}`;
       let copy = 2;
 
       while (usedPaths.has(path)) {
-        path = `${folderName}/${fileName} ${copy}${downloaded.extension}`;
+        path = `${categoryName}/${fileName} (${copy})${downloaded.extension}`;
         copy += 1;
       }
 

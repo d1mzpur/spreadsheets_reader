@@ -81,7 +81,8 @@ h2 {
 }
 
 .url-box,
-.search-box {
+.search-box,
+.range-box {
   display: grid;
   gap: 5px;
   color: var(--muted);
@@ -90,7 +91,8 @@ h2 {
 }
 
 .url-box input,
-.search-box input {
+.search-box input,
+.range-box input {
   height: 38px;
   border: 1px solid var(--line);
   border-radius: 6px;
@@ -108,6 +110,10 @@ h2 {
 .search-box input {
   width: min(24vw, 300px);
   min-width: 190px;
+}
+
+.range-box input {
+  width: 120px;
 }
 
 .url-box input:focus,

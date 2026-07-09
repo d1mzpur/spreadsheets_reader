@@ -26,8 +26,16 @@
               <span>Cari</span>
               <input id="searchInput" type="search" placeholder="Nama, NPM, prodi..." />
             </label>
+            <label class="range-box">
+              <span>No Awal</span>
+              <input id="startRowInput" type="number" min="1" placeholder="1" />
+            </label>
+            <label class="range-box">
+              <span>No Akhir</span>
+              <input id="endRowInput" type="number" min="1" placeholder="Selesai" />
+            </label>
             <button id="clearSearchButton" type="button">Reset</button>
-            <button id="downloadSelectedButton" type="button" disabled>Download Selected</button>
+            <button id="downloadSelectedButton" type="button" disabled>Download Rentang</button>
           </div>
         </div>
       </header>
