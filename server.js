@@ -362,6 +362,11 @@ function extensionFromContentType(contentType) {
   return extensions[cleanType] || "";
 }
 
+function extensionFromFilename(filename) {
+  const match = String(filename || "").match(/\.([a-z0-9]{2,8})$/i);
+  return match ? `.${match[1].toLowerCase()}` : "";
+}
+
 function hasFileExtension(filename) {
   return /\.[a-z0-9]{2,5}$/i.test(filename);
 }
@@ -376,6 +381,31 @@ function getFileExtension(contentType) {
   const extension = extensionFromContentType(contentType);
 
   return extension || ".bin";
+}
+
+function getFilenameFromContentDisposition(contentDisposition) {
+  if (!contentDisposition) return "";
+
+  const utf8Match = contentDisposition.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+  if (utf8Match) {
+    try {
+      return sanitizeFilename(decodeURIComponent(utf8Match[1]));
+    } catch {
+      return sanitizeFilename(utf8Match[1]);
+    }
+  }
+
+  const basicMatch = contentDisposition.match(/filename\s*=\s*"([^"]+)"/i);
+  if (basicMatch) {
+    return sanitizeFilename(basicMatch[1]);
+  }
+
+  const fallbackMatch = contentDisposition.match(/filename\s*=\s*([^;]+)/i);
+  if (fallbackMatch) {
+    return sanitizeFilename(fallbackMatch[1]);
+  }
+
+  return "";
 }
 
 async function readJsonBody(req) {
@@ -503,6 +533,9 @@ async function downloadFileBuffer(file) {
 
   const contentType =
     response.headers.get("content-type") || "application/octet-stream";
+  const contentDisposition =
+    response.headers.get("content-disposition") || "";
+  const sourceFilename = getFilenameFromContentDisposition(contentDisposition);
 
   if (contentType.toLowerCase().includes("text/html")) {
     throw new Error(`${file.label} mengembalikan halaman web, bukan file`);
@@ -510,7 +543,8 @@ async function downloadFileBuffer(file) {
 
   return {
     data: Buffer.from(await response.arrayBuffer()),
-    extension: getFileExtension(contentType)
+    extension:
+      extensionFromFilename(sourceFilename) || getFileExtension(contentType)
   };
 }
 
