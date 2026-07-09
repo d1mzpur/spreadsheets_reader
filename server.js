@@ -701,10 +701,31 @@ function normalizeHeaders(headers) {
   });
 }
 
+function getCandidateSheetGids(html) {
+  const gids = new Set();
+  const patterns = [
+    /[?#&]gid=([0-9]+)/g,
+    /"sheetId"\s*:\s*([0-9]+)/g,
+    /"gid"\s*:\s*"?(?:sheet:)?([0-9]+)"?/g
+  ];
+
+  patterns.forEach((pattern) => {
+    let match = pattern.exec(html);
+
+    while (match) {
+      gids.add(match[1]);
+      match = pattern.exec(html);
+    }
+  });
+
+  gids.delete("0");
+  return ["0", ...gids];
+}
+
 function extractSheetInfo(sheetUrl) {
   const rawValue = String(sheetUrl || "").trim();
   let sheetId = "";
-  let gid = "0";
+  let gid = "";
 
   if (/^[a-zA-Z0-9-_]{20,}$/.test(rawValue)) {
     sheetId = rawValue;
@@ -720,7 +741,7 @@ function extractSheetInfo(sheetUrl) {
       gid =
         url.searchParams.get("gid") ||
         url.hash.replace("#gid=", "") ||
-        "0";
+        "";
     } catch {
       sheetId = rawValue.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1] || "";
     }
@@ -740,23 +761,65 @@ function extractSheetInfo(sheetUrl) {
 
 async function fetchSheetData(sheetUrl) {
   const { sheetId, gid } = extractSheetInfo(sheetUrl);
+  const baseExportUrl = `https://docs.google.com/spreadsheets/d/${sheetId}/export`;
+  const candidateGids = gid ? [gid] : [""];
+  let csv = "";
+  let resolvedGid = gid;
+  let lastStatus = 0;
 
-  const exportUrl = new URL(
-    `https://docs.google.com/spreadsheets/d/${sheetId}/export`
-  );
+  async function tryExport(candidateGid) {
+    const exportUrl = new URL(baseExportUrl);
+    exportUrl.searchParams.set("format", "csv");
 
-  exportUrl.searchParams.set("format", "csv");
-  exportUrl.searchParams.set("gid", gid);
+    if (candidateGid) {
+      exportUrl.searchParams.set("gid", candidateGid);
+    }
 
-  const response = await fetch(exportUrl);
+    const response = await fetch(exportUrl);
+    lastStatus = response.status;
 
-  if (!response.ok) {
-    throw new Error(
-      `Google Sheets mengembalikan status ${response.status}`
-    );
+    if (!response.ok) {
+      return false;
+    }
+
+    csv = await response.text();
+    resolvedGid = candidateGid;
+    return true;
   }
 
-  const csv = await response.text();
+  if (!gid) {
+    candidateGids.push("0");
+  }
+
+  for (const candidateGid of candidateGids) {
+    if (await tryExport(candidateGid)) break;
+  }
+
+  if (!csv) {
+    try {
+      const sheetPage = await fetch(
+        `https://docs.google.com/spreadsheets/d/${sheetId}/edit`
+      );
+
+      if (sheetPage.ok) {
+        const html = await sheetPage.text();
+        const discoveredGids = getCandidateSheetGids(html);
+
+        for (const candidateGid of discoveredGids) {
+          if (candidateGids.includes(candidateGid)) continue;
+          if (await tryExport(candidateGid)) break;
+        }
+      }
+    } catch {
+      // Ignore fallback fetch errors and report the original export failure below.
+    }
+  }
+
+  if (!csv) {
+    throw new Error(
+      `Google Sheets mengembalikan status ${lastStatus || 400}. Pastikan link adalah Google Sheets, tab sheet tersedia, dan file bisa diakses dari Vercel.`
+    );
+  }
 
   const parsedRows = parseCsv(csv);
 
@@ -778,7 +841,7 @@ async function fetchSheetData(sheetUrl) {
   return {
     source: {
       sheetId,
-      gid,
+      gid: resolvedGid,
       fetchedAt: new Date().toISOString()
     },
     headers,
