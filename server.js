@@ -702,24 +702,35 @@ function normalizeHeaders(headers) {
 }
 
 function extractSheetInfo(sheetUrl) {
-  const match = sheetUrl.match(/\/d\/([a-zA-Z0-9-_]+)/);
-
-  if (!match) {
-    throw new Error("Spreadsheet ID tidak ditemukan");
-  }
-
-  const sheetId = match[1];
-
+  const rawValue = String(sheetUrl || "").trim();
+  let sheetId = "";
   let gid = "0";
 
-  try {
-    const url = new URL(sheetUrl);
+  if (/^[a-zA-Z0-9-_]{20,}$/.test(rawValue)) {
+    sheetId = rawValue;
+  } else {
+    try {
+      const url = new URL(rawValue);
 
-    gid =
-      url.searchParams.get("gid") ||
-      url.hash.replace("#gid=", "") ||
-      "0";
-  } catch {}
+      sheetId =
+        url.pathname.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1] ||
+        url.searchParams.get("id") ||
+        "";
+
+      gid =
+        url.searchParams.get("gid") ||
+        url.hash.replace("#gid=", "") ||
+        "0";
+    } catch {
+      sheetId = rawValue.match(/\/d\/([a-zA-Z0-9-_]+)/)?.[1] || "";
+    }
+  }
+
+  if (!sheetId) {
+    throw new Error(
+      "Spreadsheet ID tidak ditemukan. Gunakan link Google Sheets atau langsung Spreadsheet ID."
+    );
+  }
 
   return {
     sheetId,
